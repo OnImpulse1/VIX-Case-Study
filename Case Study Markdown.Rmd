@@ -10,21 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
-
-
-
-Beginning by loading any necessary packages
-
-```{r initialize}
+```{r library, include=FALSE}
 library(data.table)
 library(ggplot2)
 library(dplyr)
@@ -33,15 +19,148 @@ library(tidyquant)
 library(lubridate)
 ```
 
-Next, the data from the csv needs to be imported
+## Importing Data
+Data from the csv needs to be imported. \
+The strike prices are multiplied by 1,000 by default, so that is changed. Additionally, a new column for the midpoint between ask and bid price, which will be needed later.
 
 ```{r import csv}
-sp500 <- fread(E:\\Documents\\sp500_options_2010.csv)
+sp500 <- fread("E:\\Documents\\sp500_options_2010.csv")
 
 sp500 <- sp500 %>%
   mutate(
     STRIKEPRICE = STRIKEPRICE / 1000,
     MID_PRICE = (ASK_PRICE + BID_PRICE) / 2
   )
+
+in_interest_rate <- 0
+in_days_in_year <- 365
 ```
+
+
+\
+The first variable called for by the VIX formula documentation is T, the time to expiration. The dates included in the csv are in different formats by default, so they must first be made compatible.
+```{r time to expiration, warning=FALSE}
+example_Time <- as.Date("4-Jan-10", format="%d-%b-%y")
+example_MATURITYDATE <- as.Date(as.character("20100220"), format="%Y%m%d")
+example_days_to_expiry <- 47
+
+sp500[, Time := as.Date(Time, format = "%d-%b-%y")]
+sp500[, MATURITYDATE := as.Date(as.character(MATURITYDATE), format="%Y%m%d")]
+
+sp500[, years_to_expiry := as.numeric(MATURITYDATE - Time)/in_days_in_year]
+sp500[, days_to_expiry := as.numeric(MATURITYDATE - Time)]
+
+#head(sp500)
+```
+
+\
+To make sure that everything up to this point is working, the example values above will be used to test.
+```{r test 1, echo=FALSE}
+ggplot(sp500[Time == example_Time & days_to_expiry == example_days_to_expiry], aes(x = STRIKEPRICE, y = MID_PRICE))+
+  geom_point(aes(color = OPTIONTYPE))
+```
+
+\
+For the open and close of each day, we need to find the relevant option prices for the calculation of the volatility index. First, a specific date must be fixed, then for each expiry date the variance swap is calculated.
+The fixed 30 day, which is what will be directly compared to the VIX closing price, relies on both near and next term options. 
+Since there are only monthly options in our data set, this means the closest and next closest expiry dates, respectively.
+The first step in identifying the options to use is to calculate the forward.
+\
+\
+
+## Step 1: Calculate the Forward
+The strike at which we switch from calls to puts.
+```{r Step 1}
+sp_wide <- dcast(sp500, Time + MATURITYDATE + STRIKEPRICE ~ OPTIONTYPE, value.var = "MID_PRICE")
+
+sp_wide[, diff := abs(C - P)]
+sp_wide[, k_min := .SD[which.min(diff), "STRIKEPRICE"], by = .(Time, MATURITYDATE)]
+sp_wide <- sp_wide[k_min == STRIKEPRICE, .(Time, MATURITYDATE, k_min, diff)]
+
+sp500 <- merge(sp500, sp_wide,
+               by = c("Time", "MATURITYDATE")
+               )
+
+sp500 <- sp500 %>%
+  mutate(
+    forward = k_min + exp(in_interest_rate * years_to_expiry) * diff
+  )
+```
+
+\
+The forward should lie very near to where the put and call lines crossed in test 1, and to verify this the test will be run again with the forward set as the x intercept.
+\
+```{r test 2, echo=FALSE}
+ggplot(sp500[Time == example_Time & days_to_expiry == example_days_to_expiry], aes(x = STRIKEPRICE, y = MID_PRICE))+
+  geom_point(aes(color = OPTIONTYPE))+
+  geom_vline(aes(xintercept = forward))
+```
+
+\
+The next step is to find the k_zero value, the closest strike below the forward level
+```{r Step 2, warning=FALSE}
+sp500[, diff := forward - STRIKEPRICE]
+sp500[diff < 0, diff := NA]
+
+sp500[, k_zero := .SD[which.min(diff), "STRIKEPRICE"], by = .(Time, MATURITYDATE)]
+```
+
+\
+Running the same test as before with k_zero set as the x intercept
+```{r test 3, echo=FALSE}
+ggplot(sp500[Time == example_Time & days_to_expiry == example_days_to_expiry], aes(x = STRIKEPRICE, y = MID_PRICE))+
+  geom_point(aes(color = OPTIONTYPE))+
+  geom_vline(aes(xintercept = k_zero))
+```
+
+\
+Next, the VIX model calls for the filtering out of options based on certain criteria:\
+1. In the money options should be removed\
+2. Options with double zero bids, or those preceded by double zero bids should be removed
+```{r step 3}
+# Filtering out in the money options
+sp500 <- sp500[(OPTIONTYPE == "C" & STRIKEPRICE >= k_zero) | (OPTIONTYPE == "P" & STRIKEPRICE <= k_zero)]
+
+# ID double zero bids
+sp500[order(Time, MATURITYDATE, STRIKEPRICE, OPTIONTYPE), last_BID_PRICE := shift(BID_PRICE), by = .(Time, MATURITYDATE, OPTIONTYPE)]
+sp500[, is_double_zero_bid := last_BID_PRICE == BID_PRICE & BID_PRICE <= 10^(-31)]
+```
+
+\
+Testing now with the new changes applied
+```{r test 4, echo=FALSE}
+ggplot(sp500[Time == example_Time & days_to_expiry == example_days_to_expiry], aes(x = STRIKEPRICE, y = MID_PRICE))+
+  geom_point(aes(color = is_double_zero_bid))+
+  geom_vline(aes(xintercept = k_zero))
+```
+
+\
+With the double zero bids now ID'd, they can be removed, but not before calculating k_delta.
+The VIX formula calls for this, which is the difference between the strike price above and below a given option.
+```{r k_delta}
+sp500[order(Time, MATURITYDATE, STRIKEPRICE, OPTIONTYPE, decreasing = FALSE), last_STRIKEPRICE := shift(STRIKEPRICE), by = .(Time, MATURITYDATE, OPTIONTYPE)]
+sp500[order(Time, MATURITYDATE, STRIKEPRICE, OPTIONTYPE, decreasing = TRUE), next_STRIKEPRICE := shift(STRIKEPRICE), by = .(Time, MATURITYDATE, OPTIONTYPE)]
+sp500 <- sp500 %>%
+  mutate(
+    k_delta = (next_STRIKEPRICE - last_STRIKEPRICE) / 2
+  )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
