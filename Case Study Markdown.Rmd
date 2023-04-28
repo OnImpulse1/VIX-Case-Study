@@ -262,6 +262,63 @@ VIX
 
 ## Set up a loop to calculate the VIX for the rest of the year
 Now that we're able to calculate the VIX value for a single day with some accuracy, we need to set up a function to fill the rest of the year.
+Since every start time has options with expiration over and under 30 days, I'll be manually selecting one day per month to run the VIX calculation on.
+```{r 30 day full year loop}
+vix_dates <- fread("E:\\Documents\\dates.csv")
+dates <- c("2010-01-22","2010-02-22","2010-03-22","2010-04-23","2010-05-21","2010-06-18","2010-07-23","2010-08-23","2010-09-23","2010-10-22","2010-11-22","2010-12-10")
+vix_results <- data.frame(matrix(ncol = 2, nrow = 12))
+colnames(vix_results) <- c('date', 'close')
+
+i <- 1
+
+while(i < 13){
+  sp500_near <- filter(sp500, Time == dates[i] & days_to_expiry == vix_dates[i,3])
+  sp500_next <- filter(sp500, Time == dates[i] & days_to_expiry == vix_dates[i,4])
+  
+  sp500_near <- sp500_near %>%
+  mutate(
+    contribution = (k_delta / STRIKEPRICE**2) * exp(in_interest_rate*years_to_expiry) * MID_PRICE
+  )
+sum1 <- sum(sp500_near$contribution, na.rm = TRUE)
+T1 <- sp500_near[1,9]
+sig_1_left <- sum1*(2/T1)
+
+sp500_next <- sp500_next %>%
+  mutate(
+    contribution = (k_delta / STRIKEPRICE**2) * exp(in_interest_rate*years_to_expiry) * MID_PRICE
+  )
+sum2 <- sum(sp500_next$contribution, na.rm = TRUE)
+T2 <- sp500_next[1,9]
+sig_2_left <- sum2*(2/T2)
+
+F1 <- sp500_near[1,13]
+F2 <- sp500_next[1,13]
+k_zero <- sp500_near[1,14]
+
+sig_1_right <- 1/T1 * ((F1/k_zero) - 1)**2
+sig_2_right <- 1/T2 * ((F2/k_zero) - 1)**2
+
+sig_1 <- sig_1_left - sig_1_right
+sig_2 <- sig_2_left - sig_2_right
+
+Nt1 <- T1*N365
+Nt2 <- T2*N365
+
+VIX_left <- T1*sig_1 * ((Nt2-N30) / (Nt2-Nt1))
+VIX_right <- T2*sig_2 * ((N30-Nt1) / (Nt2-Nt1))
+
+VIX <- 100*sqrt((N365/N30)*(VIX_left+VIX_right))
+
+vix_results[i,1] <- vix_dates[i,2]
+vix_results[i,2] <- VIX
+
+i <- i + 1
+}
+```
+
+
+
+
 
 
 
