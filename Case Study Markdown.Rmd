@@ -236,10 +236,32 @@ VIX <- 100*sqrt((N365/N30)*(VIX_left+VIX_right))
 VIX
 ```
 
+\
+Not sure why all outputs say years_to_expiry above them\
+\
+\
+
+## Compare to VIX actual
+To compare the above calculations to the actual, we need to use tidyquant to pull the closing data for VIX
+```{r vix pull}
+vix_actual <- tq_get("^VIX", get = "stock.prices",
+                     from = "2010-01-04",
+                     to = "2010-12-31")
+# Remove some unneeded columns
+vix_actual <- vix_actual[, -c(1,3:5,7,8)]
+```
+\
+To verify that the calculation is accurate, it should be compared to the actual VIX close on 2010-01-22
+```{r verify}
+actual_row <- which(vix_actual == "2010-01-22", arr.ind = TRUE)
+vix_actual[actual_row[1,1],2]
+VIX
+```
 
 
 
-
+## Set up a loop to calculate the VIX for the rest of the year
+Now that we're able to calculate the VIX value for a single day with some accuracy, we need to set up a function to fill the rest of the year.
 
 
 
