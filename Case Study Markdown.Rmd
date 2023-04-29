@@ -333,7 +333,7 @@ vix_results
 
 ## Compare calculated volatility vs actual over the year
 Now that we have a matrix of dates and closing VIX values we can graphically compare them to the actuals that were pulled earlier.
-```{r 30 Day comp graph}
+```{r 30 Day comp graph, warning=FALSE}
 vix_compare <- merge(vix_actual, vix_results, by = "date")
 vix_compare %>%
   ggplot(aes(x = "date"))+
@@ -437,7 +437,7 @@ vxv_results
 \
 Since the 93 day index is not available on yahoo finance 
 it will need to be pulled from FRED using a slightly different function than the vix actuals
-```{r vxv actual}
+```{r vxv actual, warning=FALSE}
 vxv_actual <- tq_get("VXVCLS", get = "economic.data",
                      from = "2010-01-04",
                      to = "2010-12-31" )
