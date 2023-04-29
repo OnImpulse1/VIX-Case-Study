@@ -21,7 +21,8 @@ library(lubridate)
 
 ## Importing Data
 Data from the csv needs to be imported. \
-The strike prices are multiplied by 1,000 by default, so that is changed. Additionally, a new column for the midpoint between ask and bid price, which will be needed later.
+The strike prices are multiplied by 1,000 by default, so that is changed. 
+Additionally, a new column for the midpoint between ask and bid price, which will be needed later.
 
 ```{r import csv}
 sp500 <- fread("E:\\Documents\\sp500_options_2010.csv")
@@ -38,7 +39,8 @@ in_days_in_year <- 365
 
 
 \
-The first variable called for by the VIX formula documentation is T, the time to expiration. The dates included in the csv are in different formats by default, so they must first be made compatible.
+The first variable called for by the VIX formula documentation is T, the time to expiration. 
+The dates included in the csv are in different formats by default, so they must first be made compatible.
 ```{r time to expiration, warning=FALSE}
 example_Time <- as.Date("4-Jan-10", format="%d-%b-%y")
 example_MATURITYDATE <- as.Date(as.character("20100220"), format="%Y%m%d")
@@ -52,14 +54,16 @@ sp500[, days_to_expiry := as.numeric(MATURITYDATE - Time)]
 ```
 
 \
-To make sure that everything up to this point is working, the example values above will be used to test.
+To make sure that everything up to this point is working, 
+the example values above will be used to test.
 ```{r test 1, echo=FALSE}
 ggplot(sp500[Time == example_Time & days_to_expiry == example_days_to_expiry], aes(x = STRIKEPRICE, y = MID_PRICE))+
   geom_point(aes(color = OPTIONTYPE))
 ```
 
 \
-For the open and close of each day, we need to find the relevant option prices for the calculation of the volatility index. First, a specific date must be fixed, then for each expiry date the variance swap is calculated.
+For the open and close of each day, we need to find the relevant option prices for the calculation of the volatility index. 
+First, a specific date must be fixed, then for each expiry date the variance swap is calculated.
 The fixed 30 day, which is what will be directly compared to the VIX closing price, relies on both near and next term options. 
 Since there are only monthly options in our data set, this means the closest and next closest expiry dates, respectively.
 The first step in identifying the options to use is to calculate the forward.
@@ -86,7 +90,8 @@ sp500 <- sp500 %>%
 ```
 
 \
-The forward should lie very near to where the put and call lines crossed in test 1, and to verify this the test will be run again with the forward set as the x intercept.
+The forward should lie very near to where the put and call lines crossed in test 1, 
+and to verify this the test will be run again with the forward set as the x intercept.
 \
 ```{r test 2, echo=FALSE}
 ggplot(sp500[Time == example_Time & days_to_expiry == example_days_to_expiry], aes(x = STRIKEPRICE, y = MID_PRICE))+
@@ -169,7 +174,8 @@ sp500_next <- filter(sp500, Time == "2010-01-22" & days_to_expiry == 57)
 ```
 
 \
-From here, we need to calculate the first term of the VIX formula. This makes use of several columns in the data tables:\
+From here, we need to calculate the first term of the VIX formula. 
+This makes use of several columns in the data tables:\
 years_to_expiry, k_delta, STRIKEPRICE, and MID_PRICE.\
 It also makes use of the risk free rate, which has been assumed to be 0 for the purpose of this assignment.
 ```{r sig left}
@@ -221,7 +227,8 @@ sig_2
 \
 
 ## Step 3: Calculate the 30 day weighted average of the sigma^2 values
-This is the home stretch for the 30 day model. All that's needed now are the sigma values, the time to maturity, and the number of minutes to the option settlements,
+This is the home stretch for the 30 day model. All that's needed now are the sigma values, 
+the time to maturity, and the number of minutes to the option settlements,
 as well as the number of minutes in a 30 day and 365 day stretch.
 ```{r the rest of the owl}
 N30 <- 43200
@@ -261,8 +268,10 @@ VIX
 \
 
 ## Set up a loop to calculate the VIX for the rest of the year
-Now that we're able to calculate the VIX value for a single day with some accuracy, we need to set up a function to fill the rest of the year.
-Since every start time has options with expiration over and under 30 days, I'll be manually selecting one day per month to run the VIX calculation on.
+Now that we're able to calculate the VIX value for a single day with some accuracy, 
+we need to set up a function to fill the rest of the year.
+Since every start time has options with expiration over and under 30 days, 
+I'll be manually selecting one day per month to run the VIX calculation on.
 ```{r 30 day full year loop}
 dates <- c("2010-01-22","2010-02-22","2010-03-22","2010-04-23","2010-05-21","2010-06-18","2010-07-23","2010-08-23","2010-09-23","2010-10-22","2010-11-22","2010-12-10")
 near <- c(29,26,26,29,29,29,29,26,23,29,26,21)
@@ -330,13 +339,15 @@ vix_compare %>%
   ggplot(aes(x = "date"))+
   geom_line(aes(x= date, y = close), color = "darkred", size = 1.5)+
   geom_line(aes(x=date, y = close2), color = "steelblue", size = 1.5)+
+  labs(x = "Date", y = "VXV Index",
+       title = "VIX Calculated vs Actual 2010")+
   theme_tq()
 ```
 
 \
 From this we can see that our calculations consistently hover just under the actuals.
-The reason for this difference is likely the fact that the actual index has access to weekly option data as well, which would increase the volatility
-by a non constant amount for any given period.
+The reason for this difference is likely the fact that the actual index has access to weekly option data as well, 
+which would increase the volatility by a non constant amount for any given period.
 This lack of weekly data is also the reason why we can't make calculations for every day the way the real model can.
 \
 To measure the accuracy of our model, we need to know how well it correlates with the actual data.
@@ -354,15 +365,20 @@ With a correlation of over 99% we can conclude that our model is very accurate.
 \
 \
 
-## 93 Day Model
+## 93 Day VXV Model
 
 \
 Now that the 30 day model has been computed and verified, we must do the same for the 93 day volatility index. 
-The variables that we prepared for the model are still valid, the only thing that changes here is the dates we select, and the options we select.
-This time the near term must be any option that will reach maturity in under 93 days, and the next term will be the next set due just like last time.
+The variables that we prepared for the model are still valid, 
+the only thing that changes here is the dates we select, and the options we select.
+This time the near term must be any option that will reach maturity in under 93 days, 
+and the next term will be the next set due just like last time.
 They will again be manually selected to ensure that any data put through the model is valid.
 ```{r vxv calc loop}
 N93 <- 133920
+
+sp500_test <- filter(sp500, Time == "2010-01-22")
+
 dates <- c("2010-01-04","2010-02-04","2010-03-04","2010-04-05","2010-05-04","2010-06-04","2010-07-06","2010-08-04","2010-09-07","2010-10-07","2010-11-04","2010-12-06")
 near <- c(86,72,79,86,74,78,86,73,74,85,79,75)
 next_ <- c(103,107,107,103,109,106,102,108,102,107,107,103)
@@ -419,7 +435,8 @@ vxv_results
 ```
 
 \
-Since the 93 day index is not available on yahoo finance it will need to be pulled from FRED using a slightly different function than the vix actuals
+Since the 93 day index is not available on yahoo finance 
+it will need to be pulled from FRED using a slightly different function than the vix actuals
 ```{r vxv actual}
 vxv_actual <- tq_get("VXVCLS", get = "economic.data",
                      from = "2010-01-04",
@@ -430,6 +447,8 @@ vxv_compare %>%
   ggplot(aes(x = "date"))+
   geom_line(aes(x= date, y = price), color = "darkred", size = 1.5)+
   geom_line(aes(x=date, y = close2), color = "steelblue", size = 1.5)+
+  labs(x = "Date", y = "VXV Index",
+       title = "VXV Calculated vs Actual 2010")+
   theme_tq()
 ```
 
@@ -442,7 +461,6 @@ vxv_cor
 ```
 
 \
-
 
 
 
