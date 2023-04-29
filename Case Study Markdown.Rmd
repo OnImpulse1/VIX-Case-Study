@@ -377,11 +377,11 @@ They will again be manually selected to ensure that any data put through the mod
 ```{r vxv calc loop}
 N93 <- 133920
 
-sp500_test <- filter(sp500, Time == "2010-01-22")
+sp500_test <- filter(sp500, Time == "2010-12-10")
 
-dates <- c("2010-01-04","2010-02-04","2010-03-04","2010-04-05","2010-05-04","2010-06-04","2010-07-06","2010-08-04","2010-09-07","2010-10-07","2010-11-04","2010-12-06")
-near <- c(86,72,79,86,74,78,86,73,74,85,79,75)
-next_ <- c(103,107,107,103,109,106,102,108,102,107,107,103)
+dates <- c("2010-01-22","2010-02-22","2010-03-22","2010-04-23","2010-05-21","2010-06-18","2010-07-23","2010-08-23","2010-09-23","2010-10-22","2010-11-22","2010-12-10")
+near <- c(85,89,89,85,92,92,85,89,86,92,89,71)
+next_ <- c(120,117,100,120,120,104,120,117,99,120,117,99)
 vxv_results <- data.frame(matrix(ncol = 2, nrow = 12))
 colnames(vxv_results) <- c('date', 'close2')
 
@@ -441,6 +441,7 @@ it will need to be pulled from FRED using a slightly different function than the
 vxv_actual <- tq_get("VXVCLS", get = "economic.data",
                      from = "2010-01-04",
                      to = "2010-12-31" )
+vxv_actual <- vxv_actual[, -1]
 
 vxv_compare <- merge(vxv_actual, vxv_results, by = "date")
 vxv_compare %>%
@@ -456,21 +457,19 @@ vxv_compare %>%
 Just like with vix, our calculations trail slightly under the actual values for the same reason.
 The correlation between the two is as follows:
 ```{r vxv correlation}
-vxv_cor <- cor(vxv_compare$price, vix_compare$close2, method = "spearman")
+vxv_cor <- cor(vxv_compare$price, vix_compare$close2, method = "pearson")
 vxv_cor
 ```
 
 \
+While not as high as the 99% correlation in the 30 day index, we still have >95% here,
+indicating that the 93 day model is still accurate given the slightly different 
+data set it uses compared to the actual index.
 
-
-
-
-
-
-
-
-
-
-
-
-
+\
+\
+\
+\
+\
+\
+\
