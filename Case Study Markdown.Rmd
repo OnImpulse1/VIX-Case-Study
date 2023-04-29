@@ -237,7 +237,7 @@ VIX
 ```
 
 \
-Not sure why all outputs say years_to_expiry above them\
+\
 \
 \
 
@@ -257,23 +257,24 @@ actual_row <- which(vix_actual == "2010-01-22", arr.ind = TRUE)
 vix_actual[actual_row[1,1],2]
 VIX
 ```
-
-
+\
+\
 
 ## Set up a loop to calculate the VIX for the rest of the year
 Now that we're able to calculate the VIX value for a single day with some accuracy, we need to set up a function to fill the rest of the year.
 Since every start time has options with expiration over and under 30 days, I'll be manually selecting one day per month to run the VIX calculation on.
 ```{r 30 day full year loop}
-vix_dates <- fread("E:\\Documents\\dates.csv")
 dates <- c("2010-01-22","2010-02-22","2010-03-22","2010-04-23","2010-05-21","2010-06-18","2010-07-23","2010-08-23","2010-09-23","2010-10-22","2010-11-22","2010-12-10")
+near <- c(29,26,26,29,29,29,29,26,23,29,26,21)
+next_ <- c(57,37,61,57,40,64,57,38,58,57,39,43)
 vix_results <- data.frame(matrix(ncol = 2, nrow = 12))
-colnames(vix_results) <- c('date', 'close')
+colnames(vix_results) <- c('date', 'close2')
 
 i <- 1
 
 while(i < 13){
-  sp500_near <- filter(sp500, Time == dates[i] & days_to_expiry == vix_dates[i,3])
-  sp500_next <- filter(sp500, Time == dates[i] & days_to_expiry == vix_dates[i,4])
+  sp500_near <- filter(sp500, Time == dates[i] & days_to_expiry == near[i])
+  sp500_next <- filter(sp500, Time == dates[i] & days_to_expiry == next_[i])
   
   sp500_near <- sp500_near %>%
   mutate(
@@ -309,15 +310,138 @@ VIX_right <- T2*sig_2 * ((N30-Nt1) / (Nt2-Nt1))
 
 VIX <- 100*sqrt((N365/N30)*(VIX_left+VIX_right))
 
-vix_results[i,1] <- vix_dates[i,2]
+vix_results[i,1] <- dates[i]
 vix_results[i,2] <- VIX
 
 i <- i + 1
 }
+
+vix_results
 ```
 
+\
+\
 
+## Compare calculated volatility vs actual over the year
+Now that we have a matrix of dates and closing VIX values we can graphically compare them to the actuals that were pulled earlier.
+```{r 30 Day comp graph}
+vix_compare <- merge(vix_actual, vix_results, by = "date")
+vix_compare %>%
+  ggplot(aes(x = "date"))+
+  geom_line(aes(x= date, y = close), color = "darkred", size = 1.5)+
+  geom_line(aes(x=date, y = close2), color = "steelblue", size = 1.5)+
+  theme_tq()
+```
 
+\
+From this we can see that our calculations consistently hover just under the actuals.
+The reason for this difference is likely the fact that the actual index has access to weekly option data as well, which would increase the volatility
+by a non constant amount for any given period.
+This lack of weekly data is also the reason why we can't make calculations for every day the way the real model can.
+\
+To measure the accuracy of our model, we need to know how well it correlates with the actual data.
+
+```{r 30 day correlation}
+vix_cor <- cor(vix_compare$close, vix_compare$close2, method = "pearson",)
+vix_cor
+```
+
+\
+With a correlation of over 99% we can conclude that our model is very accurate.
+
+\
+\
+\
+\
+
+## 93 Day Model
+
+\
+Now that the 30 day model has been computed and verified, we must do the same for the 93 day volatility index. 
+The variables that we prepared for the model are still valid, the only thing that changes here is the dates we select, and the options we select.
+This time the near term must be any option that will reach maturity in under 93 days, and the next term will be the next set due just like last time.
+They will again be manually selected to ensure that any data put through the model is valid.
+```{r vxv calc loop}
+N93 <- 133920
+dates <- c("2010-01-04","2010-02-04","2010-03-04","2010-04-05","2010-05-04","2010-06-04","2010-07-06","2010-08-04","2010-09-07","2010-10-07","2010-11-04","2010-12-06")
+near <- c(86,72,79,86,74,78,86,73,74,85,79,75)
+next_ <- c(103,107,107,103,109,106,102,108,102,107,107,103)
+vxv_results <- data.frame(matrix(ncol = 2, nrow = 12))
+colnames(vxv_results) <- c('date', 'close2')
+
+i <- 1
+
+while(i < 13){
+  sp500_near <- filter(sp500, Time == dates[i] & days_to_expiry == near[i])
+  sp500_next <- filter(sp500, Time == dates[i] & days_to_expiry == next_[i])
+  
+sp500_near <- sp500_near %>%
+  mutate(
+    contribution = (k_delta / STRIKEPRICE**2) * exp(in_interest_rate*years_to_expiry) * MID_PRICE
+  )
+sum1 <- sum(sp500_near$contribution, na.rm = TRUE)
+T1 <- sp500_near[1,9]
+sig_1_left <- sum1*(2/T1)
+
+sp500_next <- sp500_next %>%
+  mutate(
+    contribution = (k_delta / STRIKEPRICE**2) * exp(in_interest_rate*years_to_expiry) * MID_PRICE
+  )
+sum2 <- sum(sp500_next$contribution, na.rm = TRUE)
+T2 <- sp500_next[1,9]
+sig_2_left <- sum2*(2/T2)
+
+F1 <- sp500_near[1,13]
+F2 <- sp500_next[1,13]
+k_zero <- sp500_near[1,14]
+
+sig_1_right <- 1/T1 * ((F1/k_zero) - 1)**2
+sig_2_right <- 1/T2 * ((F2/k_zero) - 1)**2
+
+sig_1 <- sig_1_left - sig_1_right
+sig_2 <- sig_2_left - sig_2_right
+
+Nt1 <- T1*N365
+Nt2 <- T2*N365
+
+VXV_left <- T1*sig_1 * ((Nt2-N93) / (Nt2-Nt1))
+VXV_right <- T2*sig_2 * ((N93-Nt1) / (Nt2-Nt1))
+
+VXV <- 100*sqrt((N365/N93)*(VXV_left+VXV_right))
+
+vxv_results[i,1] <- dates[i]
+vxv_results[i,2] <- VXV
+
+i <- i + 1
+}
+
+vxv_results
+```
+
+\
+Since the 93 day index is not available on yahoo finance it will need to be pulled from FRED using a slightly different function than the vix actuals
+```{r vxv actual}
+vxv_actual <- tq_get("VXVCLS", get = "economic.data",
+                     from = "2010-01-04",
+                     to = "2010-12-31" )
+
+vxv_compare <- merge(vxv_actual, vxv_results, by = "date")
+vxv_compare %>%
+  ggplot(aes(x = "date"))+
+  geom_line(aes(x= date, y = price), color = "darkred", size = 1.5)+
+  geom_line(aes(x=date, y = close2), color = "steelblue", size = 1.5)+
+  theme_tq()
+```
+
+\
+Just like with vix, our calculations trail slightly under the actual values for the same reason.
+The correlation between the two is as follows:
+```{r vxv correlation}
+vxv_cor <- cor(vxv_compare$price, vix_compare$close2, method = "spearman")
+vxv_cor
+```
+
+\
 
 
 
